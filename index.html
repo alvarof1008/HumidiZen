@@ -1,161 +1,350 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HumidiZen</title>
-    <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
-    <script src="https://unpkg.com/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://unpkg.com/gsap@3.12.2/dist/gsap.min.js"></script>
-    <style>
-      body, html {
-        margin: 0;
-        height: 100%;
-        overflow: hidden;
-        background: #000;
-        font-family: "Arial", sans-serif;
-      }
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>HumidiZen — Intro 3D</title>
 
-      .overlay {
-        position: fixed;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
-        background: radial-gradient(circle at center, #111 0%, #000 100%);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        flex-direction: column;
-        color: white;
-        transition: opacity 1s ease;
-        z-index: 10;
-      }
+  <!-- Three.js + GLTF loader + GSAP -->
+  <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://unpkg.com/three@0.158.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://unpkg.com/gsap@3.12.2/dist/gsap.min.js"></script>
 
-      .enter-btn {
-        padding: 15px 30px;
-        font-size: 18px;
-        cursor: pointer;
-        background: white;
-        color: black;
-        border: none;
-        border-radius: 8px;
-        margin-top: 20px;
-        transition: background 0.3s;
-      }
+  <style>
+    html,body { height:100%; margin:0; font-family:Inter, Roboto, Arial, sans-serif; background:#fff; }
+    #wrap { position:fixed; inset:0; background:linear-gradient(180deg,#fbfaf8,#f7f6f4); overflow:hidden; }
+    canvas { width:100%; height:100%; display:block; }
 
-      .enter-btn:hover {
-        background: #ddd;
-      }
+    /* overlay intro */
+    .overlay {
+      position:fixed; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column;
+      background: radial-gradient(circle at center, rgba(12,14,17,0.95), rgba(12,14,17,0.85));
+      color:#fff; z-index:40; transition:opacity .9s ease;
+    }
+    .logo { font-weight:700; letter-spacing:6px; font-size:24px; margin-bottom:12px; }
+    .subtitle { font-size:14px; opacity:0.85; margin-bottom:20px; }
+    .enter-btn {
+      background:#fff; color:#0b0b0b; padding:12px 22px; border-radius:999px; border:none; cursor:pointer;
+      font-weight:700; box-shadow:0 8px 30px rgba(2,6,23,0.18);
+    }
+    .enter-btn:active{ transform:translateY(1px); }
 
-      h1 {
-        font-size: 28px;
-        letter-spacing: 2px;
-      }
+    /* skip */
+    .skip { position:fixed; right:14px; bottom:12px; z-index:45; background:transparent; border:none; color:#111; font-weight:600; }
 
-      canvas {
-        display: block;
-      }
-    </style>
-  </head>
+    /* fade to white used during camera entry */
+    #fadeWhite { position:fixed; inset:0; background:#fff; pointer-events:none; opacity:0; transition:opacity .6s ease; z-index:45; }
 
-  <body>
-    <div class="overlay">
-      <h1>Bienvenido a HumidiZen</h1>
-      <button class="enter-btn">Entrar a la tienda</button>
-    </div>
+    @media (max-width:760px){
+      /* mobile fallback: keep lightweight overlay and direct enter to store */
+      canvas { display:none; }
+      .overlay { background:linear-gradient(180deg,#fbfaf8,#f7f6f4); color:#111; }
+    }
+  </style>
+</head>
+<body>
+  <div id="wrap" aria-hidden="false"></div>
 
-    <canvas id="scene"></canvas>
+  <div class="overlay" role="dialog" aria-label="Intro HumidiZen">
+    <div class="logo">HUMIDIZEN</div>
+    <div class="subtitle">Respira. Relájate. Entra.</div>
+    <button id="enter" class="enter-btn">Entrar a la tienda</button>
+  </div>
 
-    <script>
-      // Inicializa la escena
-      const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-      const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("scene"), antialias: true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setClearColor(0x000000);
+  <button class="skip" id="skip">Omitir intro</button>
+  <div id="fadeWhite" aria-hidden="true"></div>
 
-      // Luz ambiental
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
-      scene.add(ambientLight);
+<script>
+/* ------------------------
+   Config
+   ------------------------ */
+const REDIRECT_URL = '/collections/all'; // cambia si quieres otra ruta
+const AUTO_PLAY_DELAY = 2200; // ms antes de autostart
+const CAMERA_APPROACH_DURATION = 3.6; // s
 
-      // Luz direccional
-      const light = new THREE.PointLight(0xffffff, 1);
-      light.position.set(5, 5, 5);
-      scene.add(light);
+/* ------------------------
+   Setup renderer/scene/camera
+   ------------------------ */
+const container = document.getElementById('wrap');
+const scene = new THREE.Scene();
 
-      // Base (mesa simple)
-      const planeGeometry = new THREE.CylinderGeometry(3, 3, 0.3, 32);
-      const planeMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
-      const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-      scene.add(plane);
+// camera (start pulled back)
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth/window.innerHeight, 0.1, 200);
+camera.position.set(0, 1.6, 6);
 
-      // Humidificador (cilindro blanco)
-      const humidGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1.2, 32);
-      const humidMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
-      const humidifier = new THREE.Mesh(humidGeometry, humidMaterial);
-      humidifier.position.y = 0.9;
-      scene.add(humidifier);
+// renderer
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.physicallyCorrectLights = true;
+renderer.outputEncoding = THREE.sRGBEncoding;
+container.appendChild(renderer.domElement);
 
-      // "Humo" con partículas
-      const smokeParticles = [];
-      const smokeGeometry = new THREE.SphereGeometry(0.1, 8, 8);
-      const smokeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 });
+// subtle environment
+scene.background = new THREE.Color(0xf7f6f4);
 
-      for (let i = 0; i < 60; i++) {
-        const particle = new THREE.Mesh(smokeGeometry, smokeMaterial.clone());
-        particle.position.set(
-          (Math.random() - 0.5) * 0.2,
-          1.4 + Math.random() * 0.2,
-          (Math.random() - 0.5) * 0.2
-        );
-        smokeParticles.push(particle);
-        scene.add(particle);
-      }
+/* ------------------------
+   Lights
+   ------------------------ */
+const hemi = new THREE.HemisphereLight(0xfff8f0, 0x404050, 0.9);
+scene.add(hemi);
 
-      camera.position.set(0, 1.5, 4);
+const key = new THREE.DirectionalLight(0xfff6e6, 0.75);
+key.position.set(4,6,3);
+key.castShadow = true;
+scene.add(key);
 
-      // Animación del humo
-      function animateSmoke() {
-        smokeParticles.forEach(p => {
-          p.position.y += 0.01;
-          p.material.opacity -= 0.001;
-          if (p.material.opacity <= 0) {
-            p.position.y = 1.4;
-            p.material.opacity = 0.4;
-          }
-        });
-      }
+/* ------------------------
+   Floor + soft shadow (fake)
+   ------------------------ */
+const floorMat = new THREE.MeshStandardMaterial({ color:0xf5efe9, roughness:0.9 });
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(18,12), floorMat);
+floor.rotation.x = -Math.PI/2;
+floor.position.y = 0;
+scene.add(floor);
 
-      // Bucle de renderizado
-      function animate() {
-        requestAnimationFrame(animate);
-        humidifier.rotation.y += 0.005;
-        animateSmoke();
-        renderer.render(scene, camera);
-      }
-      animate();
+/* vignette table under humidifier */
+const tableMat = new THREE.MeshStandardMaterial({ color:0xe9d8c8, roughness:0.92 });
+const table = new THREE.Mesh(new THREE.CylinderGeometry(1.6,1.6,0.08,64), tableMat);
+table.position.set(0,0.03,0);
+scene.add(table);
 
-      // Responsividad
-      window.addEventListener("resize", () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-      });
+/* ------------------------
+   Stylized humidifier (improved: lathe + cap + emitter)
+   ------------------------ */
+/* Create a smooth bottle-like body using LatheGeometry */
+(function createHumidifier(){
+  // lathe profile (x,z) for rotation
+  const points = [];
+  points.push(new THREE.Vector2(0.0, 0.1));
+  points.push(new THREE.Vector2(0.28, 0.12));
+  points.push(new THREE.Vector2(0.45, 0.28));
+  points.push(new THREE.Vector2(0.5, 0.6));
+  points.push(new THREE.Vector2(0.45, 0.95));
+  points.push(new THREE.Vector2(0.33, 1.05));
+  points.push(new THREE.Vector2(0.0, 1.05));
 
-      // Botón: quitar overlay y mostrar animación
-      document.addEventListener("DOMContentLoaded", () => {
-        const overlay = document.querySelector(".overlay");
-        const button = document.querySelector(".enter-btn");
+  const bodyGeo = new THREE.LatheGeometry(points, 64);
+  const bodyMat = new THREE.MeshPhysicalMaterial({
+    color:0xffffff,
+    metalness:0.02,
+    roughness:0.24,
+    clearcoat:0.6,
+    clearcoatRoughness:0.2,
+    reflectivity:0.2
+  });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 0.5;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  scene.add(body);
 
-        button.addEventListener("click", () => {
-          gsap.to(overlay, {
-            opacity: 0,
-            duration: 1.5,
-            onComplete: () => {
-              overlay.style.display = "none";
-            }
-          });
-        });
-      });
-    </script>
-  </body>
+  // transparent water tank (inner cut)
+  const tankGeo = new THREE.LatheGeometry(points.map(p=>new THREE.Vector2(p.x*0.86,p.y*0.86)), 64);
+  const tankMat = new THREE.MeshPhysicalMaterial({
+    color:0x7fd4ff,
+    metalness:0,
+    roughness:0.06,
+    transmission:0.9, // glass-like
+    transparent:true,
+    opacity:0.95,
+    ior:1.4
+  });
+  const tank = new THREE.Mesh(tankGeo, tankMat);
+  tank.position.y = 0.52;
+  scene.add(tank);
+
+  // top emitter (small disk with emissive)
+  const topMat = new THREE.MeshStandardMaterial({ color:0xffffff, emissive:0x8fdcff, emissiveIntensity:0.9, roughness:0.3 });
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,0.04,32), topMat);
+  top.position.set(0,1.05,0);
+  scene.add(top);
+
+  // small emissive ring (visual source for smoke)
+  const ringGeo = new THREE.RingGeometry(0.16,0.22,32);
+  const ringMat = new THREE.MeshBasicMaterial({ color:0x9fe8ff, side:THREE.DoubleSide, transparent:true, opacity:0.28 });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = -Math.PI/2;
+  ring.position.set(0,1.07,0.0);
+  scene.add(ring);
+
+  // subtle point light to add color
+  const glow = new THREE.PointLight(0x9fe8ff, 0.6, 3);
+  glow.position.set(0,1.08,0);
+  scene.add(glow);
+
+})();
+
+/* ------------------------
+   Smoke particles (GPU-ish point shader)
+   ------------------------ */
+const PARTICLES = 1100;
+const pos = new Float32Array(PARTICLES*3);
+const life = new Float32Array(PARTICLES);
+const seed = new Float32Array(PARTICLES);
+
+for(let i=0;i<PARTICLES;i++){
+  const idx = i*3;
+  pos[idx] = (Math.random()-0.5)*0.18; // x
+  pos[idx+1] = 1.06 + Math.random()*0.08; // y
+  pos[idx+2] = (Math.random()-0.5)*0.18; // z
+  life[i] = Math.random();
+  seed[i] = Math.random()*1000.0;
+}
+
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+pGeo.setAttribute('aLife', new THREE.BufferAttribute(life,1));
+pGeo.setAttribute('aSeed', new THREE.BufferAttribute(seed,1));
+
+const uniforms = {
+  time: { value: 0 },
+  size: { value: 36.0 },
+  uOpacity: { value: 0.6 }
+};
+
+const pMat = new THREE.ShaderMaterial({
+  transparent:true,
+  depthWrite:false,
+  blending:THREE.NormalBlending,
+  uniforms,
+  vertexShader: `
+    attribute float aLife;
+    attribute float aSeed;
+    uniform float time;
+    uniform float size;
+    varying float vLife;
+    void main(){
+      float age = mod(time*0.35 + aLife*123.0 + aSeed*0.001, 1.0);
+      vLife = age;
+      vec3 p = position;
+      // rise with time
+      p.y += age * 1.8;
+      // swirl
+      p.x += 0.12 * sin(age*6.2831 + aSeed*0.01);
+      p.z += 0.08 * cos(age*6.2831 + aSeed*0.02);
+      vec4 mv = modelViewMatrix * vec4(p,1.0);
+      gl_PointSize = size * (1.0 - age) * (300.0 / -mv.z);
+      gl_Position = projectionMatrix * mv;
+    }
+  `,
+  fragmentShader: `
+    varying float vLife;
+    uniform float uOpacity;
+    void main(){
+      vec2 q = gl_PointCoord - vec2(0.5);
+      float r = length(q);
+      float a = smoothstep(0.5, 0.0, r);
+      // fade with life
+      float f = 1.0 - vLife;
+      // bluish-white smoke
+      vec3 col = vec3(0.92,0.94,0.96);
+      gl_FragColor = vec4(col, a * f * uOpacity);
+      // discard tiny alpha to avoid square edges
+      if(gl_FragColor.a < 0.01) discard;
+    }
+  `
+});
+
+const points = new THREE.Points(pGeo, pMat);
+scene.add(points);
+
+/* ------------------------
+   Camera subtle motion / controls for dev
+   ------------------------ */
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enablePan = false;
+controls.enableZoom = false;
+controls.enabled = false; // disabled for users; we animate camera programmatically
+
+/* ------------------------
+   Animation loop
+   ------------------------ */
+const clock = new THREE.Clock();
+
+function loop(){
+  const dt = clock.getDelta();
+  uniforms.time.value += dt;
+
+  // gentle world motion
+  scene.rotation.y = Math.sin(performance.now()*0.0002) * 0.02;
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+loop();
+
+/* ------------------------
+   Interaction: Enter button -> camera approach -> fade -> redirect
+   ------------------------ */
+let started = false;
+const overlay = document.querySelector('.overlay');
+const enterBtn = document.getElementById('enter');
+const skipBtn = document.getElementById('skip');
+const fadeWhite = document.getElementById('fadeWhite');
+
+function enterAction(){
+  if(started) return;
+  started = true;
+
+  // animate camera inwards (to "enter the smoke")
+  gsap.to(camera.position, {
+    x: 0, y: 1.16, z: 1.25,
+    duration: CAMERA_APPROACH_DURATION,
+    ease: "power2.inOut"
+  });
+
+  // slightly increase particle size/opacity for cinematic feel
+  gsap.to(uniforms.size, { value: 88.0, duration: CAMERA_APPROACH_DURATION*0.9, ease: "power1.out" });
+  gsap.to(uniforms.uOpacity, { value: 1.0, duration: CAMERA_APPROACH_DURATION*0.9, ease: "sine.inOut" });
+
+  // fade overlay away
+  gsap.to(overlay, { opacity:0, duration:0.9, ease:"power1.out", onComplete: ()=> overlay.style.display='none' });
+
+  // at the end, flash to white then redirect
+  gsap.to({}, {
+    delay: CAMERA_APPROACH_DURATION - 0.9,
+    duration: 0.9,
+    onStart: () => { fadeWhite.style.transition = 'opacity 0.9s ease'; },
+    onComplete: () => {
+      fadeWhite.style.opacity = '1';
+      // small pause so user perceives transition
+      setTimeout(()=> { window.location.href = REDIRECT_URL; }, 300);
+    }
+  });
+}
+
+enterBtn.addEventListener('click', enterAction);
+skipBtn.addEventListener('click', ()=> { window.location.href = REDIRECT_URL; });
+
+// autostart if user doesn't interact after a small delay
+let autoplay = setTimeout(() => { enterAction(); }, AUTO_PLAY_DELAY);
+
+/* ------------------------
+   Responsiveness
+   ------------------------ */
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ------------------------
+   Mobile fallback detection (hide canvas, show simple overlay with link)
+   ------------------------ */
+function isLowPerf() {
+  const ua = navigator.userAgent || '';
+  if(/Mobi|Android|iPhone|iPad/i.test(ua)) return true;
+  if(navigator.deviceMemory && navigator.deviceMemory < 2) return true;
+  return false;
+}
+if(isLowPerf()){
+  // show overlay but hide canvas
+  document.getElementById('wrap').style.display = 'none';
+  // prevent autoplay
+  clearTimeout(autoplay);
+}
+</script>
+</body>
 </html>
