@@ -392,7 +392,16 @@ if (isLowPerfDevice()) {
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') enterBtn.click();
 });
+</style>
 
+<script>
+  // Cuando se hace clic en el botón, desaparece la pantalla negra
+  document.querySelector('.enter-btn').addEventListener('click', () => {
+    gsap.to('.overlay', { opacity: 0, duration: 1, onComplete: () => {
+      document.querySelector('.overlay').style.display = 'none';
+    }});
+  });
+</script>
 </script>
 </body>
 </html>
