@@ -393,15 +393,26 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') enterBtn.click();
 });
 </style>
+<script src="https://unpkg.com/gsap@3.12.2/dist/gsap.min.js"></script>
 
 <script>
-  // Cuando se hace clic en el botón, desaparece la pantalla negra
-  document.querySelector('.enter-btn').addEventListener('click', () => {
-    gsap.to('.overlay', { opacity: 0, duration: 1, onComplete: () => {
-      document.querySelector('.overlay').style.display = 'none';
-    }});
+  document.addEventListener("DOMContentLoaded", () => {
+    const button = document.querySelector(".enter-btn");
+    const overlay = document.querySelector(".overlay");
+
+    if (button && overlay) {
+      button.addEventListener("click", () => {
+        gsap.to(overlay, {
+          opacity: 0,
+          duration: 1,
+          onComplete: () => {
+            overlay.style.display = "none";
+          }
+        });
+      });
+    }
   });
 </script>
-</script>
+
 </body>
 </html>
